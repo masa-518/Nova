@@ -10,7 +10,7 @@ import mplfinance as mpf
 import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from tool.indicators import calculate_macd
+from tool.indicators import calculate_bollinger_bands, calculate_macd, calculate_rsi
 from tool.logger import get_logger
 from tool.predictor import predict_prices
 from tool.stock_data import fetch_daily_prices
@@ -79,16 +79,21 @@ class StockApp(tk.Tk):
         extended_index = df.index.append(prediction.index)
         extended_df = df.reindex(extended_index)
         macd_extended = calculate_macd(df).reindex(extended_index)
+        bb_extended = calculate_bollinger_bands(df).reindex(extended_index)
+        rsi_extended = calculate_rsi(df).reindex(extended_index)
 
         prediction_series = pd.Series(index=extended_index, dtype=float)
         prediction_series.loc[prediction.index] = prediction.values
         prediction_series.loc[df.index[-1]] = df["Close"].iloc[-1]
 
         addplots = [
+            mpf.make_addplot(bb_extended["Upper"], color="gray", linestyle="--", width=0.8),
+            mpf.make_addplot(bb_extended["Lower"], color="gray", linestyle="--", width=0.8),
             mpf.make_addplot(macd_extended["MACD"], panel=1, color="blue", ylabel="MACD"),
             mpf.make_addplot(macd_extended["Signal"], panel=1, color="orange"),
             mpf.make_addplot(macd_extended["Histogram"], type="bar", panel=1, color="gray", alpha=0.5),
             mpf.make_addplot(prediction_series, color="purple", linestyle="--", width=1.5),
+            mpf.make_addplot(rsi_extended, panel=2, color="green", ylabel="RSI"),
         ]
 
         fig, axes = mpf.plot(
@@ -96,14 +101,18 @@ class StockApp(tk.Tk):
             type="candle",
             mav=(5, 25, 75),
             addplot=addplots,
-            panel_ratios=(3, 1),
+            panel_ratios=(3, 1, 1),
             style=CHART_STYLE,
             title=f"{code} 日足",
-            figsize=(8, 6),
+            figsize=(8, 7),
             returnfig=True,
         )
 
-        self._set_weekly_xticks(axes, extended_index)
+        bottom_ax = self._find_bottom_axis(axes)
+        bottom_ax.axhline(30, color="red", linestyle="--", linewidth=0.7)
+        bottom_ax.axhline(70, color="red", linestyle="--", linewidth=0.7)
+
+        self._set_weekly_xticks(axes, extended_index, bottom_ax)
 
         self.canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
         self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -111,7 +120,13 @@ class StockApp(tk.Tk):
 
         plt.close(fig)
 
-    def _set_weekly_xticks(self, axes, index):
+    def _find_bottom_axis(self, axes):
+        return min(
+            (ax for ax in axes if any(t.get_text() for t in ax.get_xticklabels())),
+            key=lambda ax: ax.get_position().y0,
+        )
+
+    def _set_weekly_xticks(self, axes, index, bottom_ax):
         week_keys = index.to_series().dt.strftime("%Y-%U")
 
         tick_positions = []
@@ -130,8 +145,8 @@ class StockApp(tk.Tk):
             ax.set_xticks(tick_positions)
             ax.tick_params(labelbottom=False)
 
-        axes[2].set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
-        axes[2].tick_params(labelbottom=True)
+        bottom_ax.set_xticklabels(tick_labels, rotation=45, ha="right", fontsize=7)
+        bottom_ax.tick_params(labelbottom=True)
 
 
 def run():
