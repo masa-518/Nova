@@ -6,9 +6,11 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import matplotlib.transforms as mtransforms
 import mplfinance as mpf
 import pandas as pd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.lines import Line2D
 
 from tool.indicators import calculate_bollinger_bands, calculate_macd, calculate_rsi
 from tool.logger import get_logger
@@ -48,6 +50,11 @@ class StockApp(tk.Tk):
         search_button.pack(side=tk.LEFT)
 
         self.code_entry.focus_set()
+
+        self.prediction_label = tk.Label(
+            self, text="", font=("Yu Gothic", 9), anchor="w", justify="left"
+        )
+        self.prediction_label.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=4)
 
         self.canvas = None
         self.chart_frame = tk.Frame(self)
@@ -112,6 +119,7 @@ class StockApp(tk.Tk):
         bottom_ax.axhline(30, color="red", linestyle="--", linewidth=0.7)
         bottom_ax.axhline(70, color="red", linestyle="--", linewidth=0.7)
 
+        self._add_prediction_visuals(axes, bottom_ax, len(df), len(extended_index))
         self._set_weekly_xticks(axes, extended_index, bottom_ax)
 
         self.canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
@@ -119,6 +127,31 @@ class StockApp(tk.Tk):
         self.canvas.draw()
 
         plt.close(fig)
+
+        label_parts = ["【予測値（向こう5営業日）】"]
+        for date, price in prediction.items():
+            label_parts.append(f"{date.strftime('%m/%d')}  {price:,.0f}円")
+        self.prediction_label.config(text="    ".join(label_parts))
+
+    def _add_prediction_visuals(self, axes, bottom_ax, hist_len, total_len):
+        boundary_x = hist_len - 0.5
+
+        for ax in (axes[0], axes[2], bottom_ax):
+            ax.axvline(boundary_x, color="gray", linestyle=":", linewidth=1.0)
+
+        axes[0].axvspan(boundary_x, total_len - 1, alpha=0.12, color="purple")
+
+        trans = mtransforms.blended_transform_factory(axes[0].transData, axes[0].transAxes)
+        axes[0].text(
+            boundary_x + 0.3, 0.02, "← 予測",
+            fontsize=8, color="purple", va="bottom", transform=trans,
+        )
+
+        legend_handles = [
+            Line2D([0], [0], color="purple", linestyle="--", linewidth=1.5, label="予測線"),
+            Line2D([0], [0], color="gray", linestyle="--", linewidth=0.8, label="ボリンジャーバンド"),
+        ]
+        axes[0].legend(handles=legend_handles, loc="upper left", fontsize=7, framealpha=0.7)
 
     def _find_bottom_axis(self, axes):
         return min(
